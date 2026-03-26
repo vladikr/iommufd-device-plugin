@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -17,6 +18,10 @@ const (
 	// IOMMUFDContainerSocketPath is the fixed path inside virt-launcher pods
 	// where the IOMMUFD socket is mounted.
 	IOMMUFDContainerSocketPath = "/var/run/kubevirt/iommufd.sock"
+
+	// socketAcceptTimeout is the maximum time to wait for a client to connect
+	// to the IOMMUFD socket before cleaning up resources.
+	socketAcceptTimeout = 60 * time.Second
 
 	// IOMMU_OPTION is the ioctl number for the IOMMUFD OPTION command.
 	// Defined in Linux uAPI as _IO(IOMMUFD_TYPE, IOMMUFD_CMD_OPTION)
@@ -165,6 +170,12 @@ func createIOMMUFDSocket(iommuFD int, se selinuxState, socketDir string, uniqueI
 		defer listener.Close()
 		defer os.Remove(hostSocketPath)
 		defer unix.Close(iommuFD)
+
+		// Set deadline to prevent goroutine leak if client never connects
+		if err := listener.SetDeadline(time.Now().Add(socketAcceptTimeout)); err != nil {
+			log.Printf("ERROR: failed to set deadline on IOMMUFD socket: %v", err)
+			return
+		}
 
 		conn, err := listener.AcceptUnix()
 		if err != nil {

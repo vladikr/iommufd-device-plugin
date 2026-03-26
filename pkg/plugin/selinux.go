@@ -64,7 +64,7 @@ func relabelIfSELinux(se selinuxState, path string) error {
 
 // ensureDirWithSELinux creates a directory and relabels it if SELinux is enabled.
 func ensureDirWithSELinux(se selinuxState, dir string) error {
-	if err := os.MkdirAll(dir, 0766); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 	return relabelIfSELinux(se, dir)
