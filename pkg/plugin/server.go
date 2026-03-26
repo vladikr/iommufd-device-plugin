@@ -41,7 +41,6 @@ type IOMMUFDDevicePlugin struct {
 	socketPath   string
 	resourceName string
 	socketDir    string
-	selinux      selinuxState
 	stop         <-chan struct{}
 	health       chan string
 	done         chan struct{}
@@ -62,23 +61,11 @@ func NewIOMMUFDDevicePlugin(socketDir string) *IOMMUFDDevicePlugin {
 		}
 	}
 
-	se := detectSELinux()
-	if se.enabled {
-		mode := "enforcing"
-		if se.permissive {
-			mode = "permissive"
-		}
-		log.Printf("SELinux detected (mode=%s), will relabel IOMMUFD nodes and sockets", mode)
-	} else {
-		log.Printf("SELinux not detected, skipping relabeling")
-	}
-
 	return &IOMMUFDDevicePlugin{
 		devs:         devs,
 		socketPath:   socketPath,
 		resourceName: resourceName,
 		socketDir:    socketDir,
-		selinux:      se,
 		health:       make(chan string),
 	}
 }
@@ -232,14 +219,14 @@ func (dp *IOMMUFDDevicePlugin) Allocate(_ context.Context, r *pluginapi.Allocate
 		}
 
 		socketID := uuid.New().String()
-		iommuFD, err := openAndConfigureIOMMUFD(dp.selinux, dp.socketDir, socketID)
+		iommuFD, err := openAndConfigureIOMMUFD(dp.socketDir, socketID)
 		if err != nil {
 			log.Printf("WARNING: failed to open/configure IOMMUFD: %v (returning without FD)", err)
 			response.ContainerResponses = append(response.ContainerResponses, containerResponse)
 			continue
 		}
 
-		hostSocketPath, err := createIOMMUFDSocket(iommuFD, dp.selinux, dp.socketDir, socketID)
+		hostSocketPath, err := createIOMMUFDSocket(iommuFD, dp.socketDir, socketID)
 		if err != nil {
 			log.Printf("WARNING: failed to create IOMMUFD socket: %v", err)
 			unix.Close(iommuFD)

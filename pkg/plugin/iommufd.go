@@ -58,8 +58,8 @@ func supportsIOMMUFD() bool {
 // container_t is not allowed to receive it. By creating a temporary char
 // device with the same major/minor and relabeling it to container_file_t:s0,
 // the resulting FD carries a context that container_t can receive.
-func openAndConfigureIOMMUFD(se selinuxState, socketDir string, uniqueID string) (int, error) {
-	fd, err := openUnprivilegedIOMMUFD(se, socketDir, uniqueID)
+func openAndConfigureIOMMUFD(socketDir string, uniqueID string) (int, error) {
+	fd, err := openUnprivilegedIOMMUFD(socketDir, uniqueID)
 	if err != nil {
 		return -1, err
 	}
@@ -92,7 +92,7 @@ func openAndConfigureIOMMUFD(se selinuxState, socketDir string, uniqueID string)
 // openUnprivilegedIOMMUFD creates a temporary device node for /dev/iommu,
 // relabels it with the container-friendly SELinux context, and returns an FD
 // that virt-launcher is allowed to receive via SCM_RIGHTS.
-func openUnprivilegedIOMMUFD(se selinuxState, socketDir string, uniqueID string) (int, error) {
+func openUnprivilegedIOMMUFD(socketDir string, uniqueID string) (int, error) {
 	// Get major/minor of the real /dev/iommu
 	var stat unix.Stat_t
 	if err := unix.Stat(iommuDevicePath, &stat); err != nil {
@@ -109,7 +109,7 @@ func openUnprivilegedIOMMUFD(se selinuxState, socketDir string, uniqueID string)
 	defer os.Remove(tmpNodePath)
 
 	// Relabel the temporary node so the FD carries a container-friendly context
-	if err := relabelIfSELinux(se, tmpNodePath); err != nil {
+	if err := relabelPath(tmpNodePath); err != nil {
 		return -1, fmt.Errorf("failed to relabel temporary iommu node: %w", err)
 	}
 
@@ -134,8 +134,8 @@ func openUnprivilegedIOMMUFD(se selinuxState, socketDir string, uniqueID string)
 // the IOMMUFD file descriptor to a connecting client via SCM_RIGHTS.
 // The socket and its directory are relabeled for SELinux if needed.
 // Returns the host-side socket path.
-func createIOMMUFDSocket(iommuFD int, se selinuxState, socketDir string, uniqueID string) (string, error) {
-	if err := ensureDirWithSELinux(se, socketDir); err != nil {
+func createIOMMUFDSocket(iommuFD int, socketDir string, uniqueID string) (string, error) {
+	if err := ensureDirWithRelabel(socketDir); err != nil {
 		return "", err
 	}
 
@@ -157,7 +157,7 @@ func createIOMMUFDSocket(iommuFD int, se selinuxState, socketDir string, uniqueI
 	}
 
 	// Relabel the socket file itself
-	if err := relabelIfSELinux(se, hostSocketPath); err != nil {
+	if err := relabelPath(hostSocketPath); err != nil {
 		listener.Close()
 		os.Remove(hostSocketPath)
 		return "", fmt.Errorf("failed to relabel socket: %w", err)

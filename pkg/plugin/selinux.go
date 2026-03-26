@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/opencontainers/selinux/go-selinux"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -15,24 +15,6 @@ const (
 	containerFileLabel = "system_u:object_r:container_file_t:s0"
 )
 
-// selinuxState caches the SELinux detection result.
-type selinuxState struct {
-	enabled    bool
-	permissive bool
-}
-
-// detectSELinux checks whether SELinux is enabled and in which mode.
-func detectSELinux() selinuxState {
-	if !selinux.GetEnabled() {
-		return selinuxState{enabled: false}
-	}
-	mode := selinux.EnforceMode()
-	return selinuxState{
-		enabled:    true,
-		permissive: mode == selinux.Permissive,
-	}
-}
-
 // relabelPath sets the SELinux label on the given path to container_file_t:s0
 // so that container_t processes can access FDs originating from this file.
 //
@@ -41,10 +23,17 @@ func detectSELinux() selinuxState {
 // (container_t) is allowed to use an FD with the source file's context.
 // Files under /dev typically have device_t context which container_t cannot
 // access. Relabeling to container_file_t:s0 allows the FD transfer to succeed.
-func relabelPath(path string, continueOnError bool) error {
-	if err := selinux.SetFileLabel(path, containerFileLabel); err != nil {
-		if continueOnError {
-			log.Printf("WARNING: failed to relabel %s (non-fatal in permissive mode): %v", path, err)
+//
+// This always attempts the lsetxattr syscall directly rather than trying to
+// detect SELinux first. Inside containers, selinuxfs may not be mounted so
+// detection via /sys/fs/selinux fails, but lsetxattr still works in
+// privileged containers. If SELinux is not present, the syscall returns
+// ENOTSUP and we log and continue.
+func relabelPath(path string) error {
+	label := containerFileLabel + "\x00" // null-terminated as required by xattr
+	if err := unix.Lsetxattr(path, "security.selinux", []byte(label), 0); err != nil {
+		if err == unix.ENOTSUP || err == unix.ENODATA {
+			log.Printf("SELinux xattr not supported on %s (no SELinux), skipping", path)
 			return nil
 		}
 		return fmt.Errorf("failed to relabel %s with %s: %w", path, containerFileLabel, err)
@@ -53,19 +42,10 @@ func relabelPath(path string, continueOnError bool) error {
 	return nil
 }
 
-// relabelIfSELinux relabels the given path only if SELinux is enabled.
-// In permissive mode, relabeling errors are logged but not returned.
-func relabelIfSELinux(se selinuxState, path string) error {
-	if !se.enabled {
-		return nil
-	}
-	return relabelPath(path, se.permissive)
-}
-
-// ensureDirWithSELinux creates a directory and relabels it if SELinux is enabled.
-func ensureDirWithSELinux(se selinuxState, dir string) error {
+// ensureDirWithRelabel creates a directory and attempts SELinux relabeling.
+func ensureDirWithRelabel(dir string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
-	return relabelIfSELinux(se, dir)
+	return relabelPath(dir)
 }
