@@ -13,14 +13,34 @@ If `/dev/iommu` is not present on the node, the plugin still accepts allocations
    make build
    ```
 
-2. **Build the container image**:
+   For a specific architecture:
+   ```sh
+   make build ARCH=arm64
+   ```
+
+2. **Build the container image** (defaults to amd64):
    ```sh
    make image
+   ```
+
+   For arm64:
+   ```sh
+   make image ARCH=arm64
    ```
 
    To override the image name or tag:
    ```sh
    make image IMAGE=quay.io/myuser/iommufd-device-plugin TAG=v0.1.0
+   ```
+
+3. **Build a multi-arch manifest** (after building and pushing both architectures):
+   ```sh
+   make image ARCH=amd64
+   make push ARCH=amd64
+   make image ARCH=arm64
+   make push ARCH=arm64
+   make manifest
+   make manifest-push
    ```
 
 ## Testing
